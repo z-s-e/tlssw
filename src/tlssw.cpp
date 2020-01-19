@@ -78,6 +78,15 @@ connection &connection::operator=(connection&& rhs)
     return *this;
 }
 
+static unsigned int psk_copy_key(SSL* ssl, unsigned char* psk, unsigned int max_psk_len)
+{
+    auto key = reinterpret_cast<std::vector<unsigned char>*>(SSL_get_ex_data(ssl, 1));
+    if( key->size() > max_psk_len )
+        return 0;
+    memcpy(psk, key->data(), key->size());
+    return key->size();
+}
+
 static unsigned int psk_server_cb(SSL* ssl, const char* identity,
                                   unsigned char* psk,
                                   unsigned int max_psk_len)
@@ -85,12 +94,7 @@ static unsigned int psk_server_cb(SSL* ssl, const char* identity,
     auto id = reinterpret_cast<std::string*>(SSL_get_ex_data(ssl, 0));
     if( strcmp(identity, id->data()) != 0 )
         return 0;
-
-    auto key = reinterpret_cast<std::vector<unsigned char>*>(SSL_get_ex_data(ssl, 1));
-    if( key->size() > max_psk_len )
-        return 0;
-    memcpy(psk, key->data(), key->size());
-    return key->size();
+    return psk_copy_key(ssl, psk, max_psk_len);
 }
 
 static unsigned int psk_client_cb(SSL* ssl, const char* /*hint*/,
@@ -101,12 +105,7 @@ static unsigned int psk_client_cb(SSL* ssl, const char* /*hint*/,
     if( id->size() + 1 > max_identity_len )
         return 0;
     strcpy(identity, id->data());
-
-    auto key = reinterpret_cast<std::vector<unsigned char>*>(SSL_get_ex_data(ssl, 1));
-    if( key->size() > max_psk_len )
-        return 0;
-    memcpy(psk, key->data(), key->size());
-    return key->size();
+    return psk_copy_key(ssl, psk, max_psk_len);
 }
 
 ResetResult connection::reset(int socket, const configuration &config)
@@ -161,7 +160,7 @@ ResetResult connection::reset(int socket, const configuration &config)
             if( SSL_CTX_use_PrivateKey_file(ctx, config.private_key_pem.c_str(), SSL_FILETYPE_PEM) <= 0 )
                 return ResetResult::InvalidConfigPrivateKey;
 
-            if( ! SSL_CTX_check_private_key(ctx) )
+            if( SSL_CTX_check_private_key(ctx) != 1 )
                 return ResetResult::InvalidConfigPrivateKey;
         }
 
@@ -171,9 +170,7 @@ ResetResult connection::reset(int socket, const configuration &config)
                 return ResetResult::InvalidConfigPeerCert;
             SSL_CTX_set_verify(ctx, SSL_VERIFY_PEER | SSL_VERIFY_FAIL_IF_NO_PEER_CERT | SSL_VERIFY_CLIENT_ONCE, nullptr);
             SSL_CTX_set_verify_depth(ctx, 0);
-        }
-
-        if( config.role == Role::Client && config.method != Method::PSKonly) {
+        } else if( config.role == Role::Client && config.method != Method::PSKonly) {
             if( SSL_CTX_load_verify_locations(ctx, config.peer_certificate_pem.c_str(), nullptr) != 1 )
                 return ResetResult::InvalidConfigPeerCert;
 
@@ -224,7 +221,7 @@ unsigned connection::maximum_buffer_size()
     return SSL3_RT_MAX_PLAIN_LENGTH;
 }
 
-bool connection::schedule_send(const void *data, unsigned size)
+bool connection::schedule_send(const void *buffer, unsigned size)
 {
     if( d->pendingWrite > 0
             || size > maximum_buffer_size()
@@ -233,7 +230,7 @@ bool connection::schedule_send(const void *data, unsigned size)
             || d->ssl == nullptr )
         return false;
 
-    memcpy(d->writeBuffer, data, size);
+    memcpy(d->writeBuffer, buffer, size);
     d->pendingWrite = size;
     return true;
 }
@@ -279,9 +276,9 @@ retry:
     }
 
     if( ! d->eos ) {
-        int r = SSL_read(d->ssl, receive_buf, receive_buf_size);
+        int r = SSL_read(d->ssl, receive_buf, int(receive_buf_size));
         if( r > 0 ) {
-            msg.received = r;
+            msg.received = unsigned(r);
         } else {
             switch( SSL_get_error(d->ssl, r) ) {
             case SSL_ERROR_ZERO_RETURN:
@@ -300,12 +297,12 @@ retry:
     }
 
     if( d->pendingWrite > 0 ) {
-        int w = SSL_write(d->ssl, d->writeBuffer, d->pendingWrite);
+        int w = SSL_write(d->ssl, d->writeBuffer, int(d->pendingWrite));
 
         if( w > 0 ) {
             //assert(w == d->pendingWrite);
             d->pendingWrite = 0;
-            msg.sent = w;
+            msg.sent = unsigned(w);
             msg.schedulable = d->shutdownPending ? 0 : maximum_buffer_size();
             return msg;
         }

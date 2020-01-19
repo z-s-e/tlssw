@@ -75,14 +75,14 @@ static int connect_socket()
     if( inet_aton("127.0.0.1", &serv_addr.sin_addr) != 1 )
         error("inet_aton");
     serv_addr.sin_port = htons(HOST_PORT);
-    if( connect(s, (struct sockaddr *) &serv_addr, sizeof(serv_addr)) < 0 )
+    if( connect(s, reinterpret_cast<struct sockaddr *>(&serv_addr), sizeof(serv_addr)) < 0 )
         error("connect");
 
     return s;
 }
 
 
-int main(int argc, char **argv)
+int main(int, char **)
 {
     setvbuf(stdout, NULL, _IONBF, 0);
 

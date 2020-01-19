@@ -43,12 +43,13 @@ struct event_handler {
         closeClient = true;
     }
 
-    void operator()(tlssw::connection::BlockedEvent e)
+    void operator()(tlssw::connection::BlockedEvent)
     {
-        assert(false);
+        fprintf(stderr, "BlockedEvent, should not happen\n");
+        abort();
     }
 
-    void operator()(tlssw::connection::ErrorEvent e)
+    void operator()(tlssw::connection::ErrorEvent)
     {
         fprintf(stderr, "ErrorEvent\n");
         closeClient = true;
@@ -74,7 +75,7 @@ static int listen_socket()
     int tmp = 1;
     setsockopt(s, SOL_SOCKET, SO_REUSEADDR, &tmp, sizeof(tmp));
 
-    if( bind(s, (struct sockaddr*)&addr, sizeof(addr)) < 0 )
+    if( bind(s, reinterpret_cast<struct sockaddr*>(&addr), sizeof(addr)) < 0 )
         error("bind");
 
     if( listen(s, 1) < 0 )
@@ -83,7 +84,7 @@ static int listen_socket()
     return s;
 }
 
-int main(int argc, char **argv)
+int main(int, char **)
 {
     setvbuf(stdout, NULL, _IONBF, 0);
 
@@ -102,7 +103,7 @@ int main(int argc, char **argv)
 
         struct sockaddr_in clientname;
         socklen_t size = sizeof(clientname);
-        int client = accept(sockfd, (struct sockaddr *) &clientname, &size);
+        int client = accept(sockfd, reinterpret_cast<struct sockaddr *>(&clientname), &size);
         if( client < 0 )
             error("accept");
 
