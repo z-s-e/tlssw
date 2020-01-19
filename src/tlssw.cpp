@@ -42,6 +42,8 @@ struct connection::data {
             SSL_CTX_free(ctx);
             ctx = nullptr;
         }
+        psk_identity.clear();
+        psk.clear();
     }
 
     void cleanup_all() {
@@ -319,6 +321,8 @@ retry:
             if( msg.received == 0 ) // TODO alternatives?
                 return ErrorEvent();
         }
+    } else {
+        msg.schedulable = (d->shutdownPending || d->shutdown) ? 0 : maximum_buffer_size();
     }
 
     if( msg.received > 0 )

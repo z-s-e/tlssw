@@ -82,7 +82,7 @@ public:
     struct ShutdownSentEvent {
     };
     struct BlockedEvent {
-        short events = 0;
+        short events = 0; // flag combination of POLLIN, POLLOUT
     };
     struct ErrorEvent {
         //TODO add members describing the error occured
@@ -97,9 +97,13 @@ public:
 
     static unsigned maximum_buffer_size();
 
+    // If this returns false, the call can be retried after a MessageEvent
+    // occurs with schedulable >= size.
     bool schedule_send(const void* data, unsigned size);
     void schedule_shutdown();
 
+    // receive_buf may not be null, receive_buf_size must be > 0.
+    // Specifying a negative value in timeout means an infinite timeout, like poll().
     Event next_event(void* receive_buf, unsigned receive_buf_size,
                      nanoseconds timeout = nanoseconds(0));
 
